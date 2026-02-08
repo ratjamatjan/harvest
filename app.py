@@ -21,11 +21,12 @@ ID <TAB> Benämning <TAB> Meta
 
 Regler:
 - Identifiera logiska rader (grupper, kablar, funktioner).
-- ID är fri text (t.ex. 15.3, 6-9, Kabel 12, Spis).
-- Benämning är fri, mänsklig beskrivning.
-- Lägg teknisk info (säkring, area, JFB, fas, kabelnr, KNX) i Meta om den är tydlig.
-- Gissa inte. Lämna tomt eller skriv "oklart".
 - Behåll ordningen som på bilden.
+- Hoppa inte över rader/gruppnummer. Om en rad är tom/oklar: skriv '-' i Benämning.
+- ID är fri text (t.ex. 15.3, 6-9, Kabel 12, Spis). Om ID saknas i underlaget: skriv '-'.
+- Benämning är fri, mänsklig beskrivning. Om Benämning saknas i underlaget: skriv '-'.
+- Lägg teknisk info (säkring, area, JFB, fas, kabelnr, KNX, m.m.) i Meta om den är tydlig.
+- Gissa inte. Lämna Meta tomt eller skriv '-' om du vill markera att det saknas.
 - Om det finns rubriker/sektioner (t.ex. JFB, Central 1/2), lägg dem som egna rader.
 """
 
@@ -103,13 +104,18 @@ def build_filename(project: str, panel: str) -> str:
 st.title("Central-motor")
 st.caption(CONTRACT)
 
-# Projektinfo
 with st.expander("Projektinfo (för filnamn)", expanded=True):
     col1, col2 = st.columns(2)
     with col1:
-        project_name = st.text_input("Projektnamn", value=st.session_state.get("project_name", ""))
+        project_name = st.text_input(
+            "Projektnamn",
+            value=st.session_state.get("project_name", ""),
+        )
     with col2:
-        panel_name = st.text_input("Central / blad (valfritt)", value=st.session_state.get("panel_name", ""))
+        panel_name = st.text_input(
+            "Central / blad (valfritt)",
+            value=st.session_state.get("panel_name", ""),
+        )
 
     st.session_state["project_name"] = project_name
     st.session_state["panel_name"] = panel_name
@@ -122,9 +128,7 @@ if "raw_tsv" not in st.session_state:
     st.session_state.raw_tsv = ""
 
 
-tab_in, tab_out, tab_adv = st.tabs(
-    ["IN (tolkning + TSV)", "UT (preview/export)", "Avancerat"]
-)
+tab_in, tab_out, tab_adv = st.tabs(["IN (tolkning + TSV)", "UT (preview/export)", "Avancerat"])
 
 # --------------------------------------------------
 # IN
@@ -154,7 +158,6 @@ with tab_in:
 # Parse once
 # --------------------------------------------------
 df = parse_tsv(st.session_state.raw_tsv)
-
 
 # --------------------------------------------------
 # UT

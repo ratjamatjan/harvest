@@ -57,6 +57,9 @@ st.caption(CONTRACT)
 if "raw_tsv" not in st.session_state:
     st.session_state.raw_tsv = DEFAULT_TSV
 
+# En enda toggle globalt (ingen duplicering)
+st.toggle("Rubrik i export", value=True, key="include_header")
+
 tab_in, tab_out, tab_adv = st.tabs(["IN (klistra/skriv)", "UT (preview/export)", "Avancerat"])
 
 # --- IN: stor editor (mobilvänlig)
@@ -80,16 +83,10 @@ with tab_in:
             st.session_state.raw_tsv = DEFAULT_TSV
             st.rerun()
     with col3:
-        include_header = st.toggle("Rubrik i export", value=True)
+        st.caption("Tips: På mobil kan du skriva `|` och vi kan senare lägga en auto-konvertering till TAB om du vill.")
 
 # Vi parsar en gång och återanvänder i UT/Avancerat
 df = parse_tsv(st.session_state.raw_tsv)
-# include_header behöver finnas även om man inte varit i tab_in ännu
-include_header = st.session_state.get("Rubrik i export", True)
-# Streamlit toggle sparas inte automatiskt med label; vi tar en säkrare approach:
-# Om användaren varit i tab_in så finns toggle-värdet i "include_header" variabeln där.
-# Men på vissa mobiler kan tabs rendera om. Därför erbjuder vi togglen igen i UT.
-# (se nedan)
 
 # --- UT: preview + copy/export (one tap)
 with tab_out:
@@ -97,12 +94,10 @@ with tab_out:
     st.dataframe(df, use_container_width=True, hide_index=True)
 
     st.divider()
-    include_header_out = st.toggle("Rubrik i export", value=True)
-    tsv_out = df_to_tsv(df, include_header=include_header_out)
+    tsv_out = df_to_tsv(df, include_header=st.session_state.get("include_header", True))
 
     st.subheader("TSV ut")
     st.caption("Tryck på kopiera-ikonen i högra hörnet av rutan.")
-    # st.code har inbyggd copy-knapp (bra på mobil)
     st.code(tsv_out, language=None)
 
     st.download_button(
@@ -122,13 +117,14 @@ with tab_adv:
         use_container_width=True,
         hide_index=True,
         column_config={
-            "ID": st.column_config.TextColumn("ID"),
-            "Benämning": st.column_config.TextColumn("Benämning"),
-            "Meta": st.column_config.TextColumn("Meta"),
+            "ID": st.column_config.TextColumn("ID", help="Fri text: 15.3, 6-9, Kabel 12, Spis..."),
+            "Benämning": st.column_config.TextColumn("Benämning", help="Fri beskrivning"),
+            "Meta": st.column_config.TextColumn("Meta", help="Valfritt: 10A, 1.5mm², JFB1, fas, kabelnr..."),
         },
         key="editor",
     )
     edited = edited.fillna("").astype(str)
+
     st.divider()
-    st.write("Uppdatera TSV i IN-fliken med detta om du vill:")
+    st.write("Vill du ta med dina tabelländringar tillbaka till IN-fliken? Kopiera TSV:t nedan och klistra in där.")
     st.code(df_to_tsv(edited, include_header=True), language=None)

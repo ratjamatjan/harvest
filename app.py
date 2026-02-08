@@ -14,6 +14,21 @@ st.set_page_config(page_title="Central-motor (TSV)", layout="centered")
 
 CONTRACT = "Kontrakt: ID, Benämning, Meta • Tomma fält OK • Ingen validering • Ordningen betyder något"
 
+INTERPRETATION_PROMPT = """Tolka bilden som ett arbetsunderlag (inte slutdokumentation).
+
+Leverera TSV med kolumner:
+ID <TAB> Benämning <TAB> Meta
+
+Regler:
+- Identifiera logiska rader (grupper, kablar, funktioner).
+- ID är fri text (t.ex. 15.3, 6-9, Kabel 12, Spis).
+- Benämning är fri, mänsklig beskrivning.
+- Lägg teknisk info (säkring, area, JFB, fas, kabelnr, KNX) i Meta om den är tydlig.
+- Gissa inte. Lämna tomt eller skriv "oklart".
+- Behåll ordningen som på bilden.
+- Om det finns rubriker/sektioner (t.ex. JFB, Central 1/2), lägg dem som egna rader.
+"""
+
 
 # --------------------------------------------------
 # Helpers
@@ -52,12 +67,7 @@ def df_to_tsv(df: pd.DataFrame, include_header: bool = True) -> str:
         if col not in out.columns:
             out[col] = ""
     out = out[["ID", "Benämning", "Meta"]].fillna("").astype(str)
-    return out.to_csv(
-        sep="\t",
-        index=False,
-        header=include_header,
-        lineterminator="\n",
-    )
+    return out.to_csv(sep="\t", index=False, header=include_header, lineterminator="\n")
 
 
 def slugify(text: str) -> str:
@@ -97,15 +107,9 @@ st.caption(CONTRACT)
 with st.expander("Projektinfo (för filnamn)", expanded=True):
     col1, col2 = st.columns(2)
     with col1:
-        project_name = st.text_input(
-            "Projektnamn",
-            value=st.session_state.get("project_name", ""),
-        )
+        project_name = st.text_input("Projektnamn", value=st.session_state.get("project_name", ""))
     with col2:
-        panel_name = st.text_input(
-            "Central / blad (valfritt)",
-            value=st.session_state.get("panel_name", ""),
-        )
+        panel_name = st.text_input("Central / blad (valfritt)", value=st.session_state.get("panel_name", ""))
 
     st.session_state["project_name"] = project_name
     st.session_state["panel_name"] = panel_name
@@ -113,30 +117,35 @@ with st.expander("Projektinfo (för filnamn)", expanded=True):
     st.toggle("Rubrik i export", value=True, key="include_header")
 
 
-# TSV input state (start TOMT)
+# TSV input state (start tomt)
 if "raw_tsv" not in st.session_state:
     st.session_state.raw_tsv = ""
 
 
 tab_in, tab_out, tab_adv = st.tabs(
-    ["IN (klistra/skriv)", "UT (preview/export)", "Avancerat"]
+    ["IN (tolkning + TSV)", "UT (preview/export)", "Avancerat"]
 )
 
 # --------------------------------------------------
 # IN
 # --------------------------------------------------
 with tab_in:
-    st.write("Klistra in eller skriv TSV här. (Tab mellan kolumner.)")
+    st.subheader("1) Prompt till ChatGPT")
+    st.caption("Kopiera detta och använd när du skickar in bilder.")
+    st.code(INTERPRETATION_PROMPT, language=None)
 
+    st.divider()
+
+    st.subheader("2) Klistra in TSV")
     st.session_state.raw_tsv = st.text_area(
         "TSV",
         value=st.session_state.raw_tsv,
-        height=360,
+        height=300,
         label_visibility="collapsed",
         placeholder="ID<TAB>Benämning<TAB>Meta",
     )
 
-    if st.button("Rensa", use_container_width=True):
+    if st.button("Rensa TSV", use_container_width=True):
         st.session_state.raw_tsv = ""
         st.rerun()
 
@@ -156,20 +165,16 @@ with tab_out:
 
     st.divider()
 
-    tsv_out = df_to_tsv(
-        df,
-        include_header=st.session_state.get("include_header", True),
-    )
+    tsv_out = df_to_tsv(df, include_header=st.session_state.get("include_header", True))
 
     st.subheader("TSV ut")
-    st.caption("Tryck på kopiera-ikonen i högra hörnet av rutan.")
+    st.caption("Tryck på kopiera-ikonen i högra hörnet.")
     st.code(tsv_out, language=None)
 
     filename = build_filename(
         project=st.session_state.get("project_name", ""),
         panel=st.session_state.get("panel_name", ""),
     )
-
     st.caption(f"Filnamn: `{filename}`")
 
     st.download_button(
@@ -185,10 +190,7 @@ with tab_out:
 # Avancerat
 # --------------------------------------------------
 with tab_adv:
-    st.write(
-        "Använd bara om du verkligen vill redigera i tabell-form. "
-        "(Mobil kan vara seg.)"
-    )
+    st.write("Endast om du verkligen vill redigera i tabellform (mobil kan vara seg).")
 
     edited = st.data_editor(
         df,
@@ -206,8 +208,5 @@ with tab_adv:
     edited = edited.fillna("").astype(str)
 
     st.divider()
-    st.write(
-        "Vill du ta med tabelländringar tillbaka till IN-fliken? "
-        "Kopiera TSV:t nedan och klistra in där."
-    )
+    st.write("Vill du ta med ändringar tillbaka till IN-fliken?")
     st.code(df_to_tsv(edited, include_header=True), language=None)

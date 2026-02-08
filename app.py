@@ -2,10 +2,9 @@ import io
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="Central-motor (TSV)", layout="wide")
+st.set_page_config(page_title="Central-motor (TSV)", layout="centered")
 
-st.title("Central-motor (v1)")
-st.caption("Kontrakt: ID, Benämning, Meta • Tomma fält OK • Ingen validering • Ordningen betyder något")
+CONTRACT = "Kontrakt: ID, Benämning, Meta • Tomma fält OK • Ingen validering • Ordningen betyder något"
 
 DEFAULT_TSV = (
     "ID\tBenämning\tMeta\n"
@@ -16,8 +15,7 @@ DEFAULT_TSV = (
 )
 
 def parse_tsv(tsv_text: str) -> pd.DataFrame:
-    # Läs TSV robust: accepterar både med/utan rubrikrad.
-    tsv_text = (tsv_text or "").strip("\n\r\t ")
+    tsv_text = (tsv_text or "").strip("\n\r ")
     if not tsv_text:
         return pd.DataFrame(columns=["ID", "Benämning", "Meta"])
 
@@ -27,25 +25,21 @@ def parse_tsv(tsv_text: str) -> pd.DataFrame:
     except Exception:
         df = pd.DataFrame()
 
-    # Om det inte blev 3 kolumner, läs utan rubrik och sätt kolumnnamn
+    # Om inte exakt 3 kolumner: läs utan rubrik
     if df.shape[1] != 3:
         df = pd.read_csv(io.StringIO(tsv_text), sep="\t", header=None, dtype=str)
-        # Fyll/trimma till exakt 3 kolumner
         while df.shape[1] < 3:
             df[df.shape[1]] = ""
         if df.shape[1] > 3:
             df = df.iloc[:, :3]
         df.columns = ["ID", "Benämning", "Meta"]
     else:
-        # Se till att kolumnnamnen är exakt våra (om användaren skrivit något annat)
         df = df.iloc[:, :3]
         df.columns = ["ID", "Benämning", "Meta"]
 
-    # Normalisera
     df = df.fillna("")
-    df["ID"] = df["ID"].astype(str).str.strip()
-    df["Benämning"] = df["Benämning"].astype(str).str.strip()
-    df["Meta"] = df["Meta"].astype(str).str.strip()
+    for c in ["ID", "Benämning", "Meta"]:
+        df[c] = df[c].astype(str).str.strip()
     return df
 
 def df_to_tsv(df: pd.DataFrame, include_header: bool = True) -> str:
@@ -56,48 +50,85 @@ def df_to_tsv(df: pd.DataFrame, include_header: bool = True) -> str:
     out = out[["ID", "Benämning", "Meta"]].fillna("").astype(str)
     return out.to_csv(sep="\t", index=False, header=include_header, lineterminator="\n")
 
-left, right = st.columns([1, 1], gap="large")
+# --- Header (mobil)
+st.title("Central-motor")
+st.caption(CONTRACT)
 
-with left:
-    st.subheader("1) Klistra in TSV")
-    raw = st.text_area(
-        "TSV (tab-separerat). Gärna med rubrikrad: ID, Benämning, Meta",
-        value=DEFAULT_TSV,
-        height=260,
+if "raw_tsv" not in st.session_state:
+    st.session_state.raw_tsv = DEFAULT_TSV
+
+tab_in, tab_out, tab_adv = st.tabs(["IN (klistra/skriv)", "UT (preview/export)", "Avancerat"])
+
+# --- IN: stor editor (mobilvänlig)
+with tab_in:
+    st.write("Klistra in eller skriv TSV här. (Tab mellan kolumner.)")
+    st.session_state.raw_tsv = st.text_area(
+        "TSV",
+        value=st.session_state.raw_tsv,
+        height=360,
+        label_visibility="collapsed",
+        placeholder="ID<TAB>Benämning<TAB>Meta",
     )
-    include_header = st.checkbox("Inkludera rubrikrad vid export", value=True)
 
-    df = parse_tsv(raw)
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("Rensa", use_container_width=True):
+            st.session_state.raw_tsv = "ID\tBenämning\tMeta\n"
+            st.rerun()
+    with col2:
+        if st.button("Exempel", use_container_width=True):
+            st.session_state.raw_tsv = DEFAULT_TSV
+            st.rerun()
+    with col3:
+        include_header = st.toggle("Rubrik i export", value=True)
+
+# Vi parsar en gång och återanvänder i UT/Avancerat
+df = parse_tsv(st.session_state.raw_tsv)
+# include_header behöver finnas även om man inte varit i tab_in ännu
+include_header = st.session_state.get("Rubrik i export", True)
+# Streamlit toggle sparas inte automatiskt med label; vi tar en säkrare approach:
+# Om användaren varit i tab_in så finns toggle-värdet i "include_header" variabeln där.
+# Men på vissa mobiler kan tabs rendera om. Därför erbjuder vi togglen igen i UT.
+# (se nedan)
+
+# --- UT: preview + copy/export (one tap)
+with tab_out:
+    st.subheader("Preview")
+    st.dataframe(df, use_container_width=True, hide_index=True)
 
     st.divider()
-    st.subheader("3) Export")
-    tsv_out = df_to_tsv(df, include_header=include_header)
+    include_header_out = st.toggle("Rubrik i export", value=True)
+    tsv_out = df_to_tsv(df, include_header=include_header_out)
 
-    st.text_area("TSV ut (kopiera)", value=tsv_out, height=200)
+    st.subheader("TSV ut")
+    st.caption("Tryck på kopiera-ikonen i högra hörnet av rutan.")
+    # st.code har inbyggd copy-knapp (bra på mobil)
+    st.code(tsv_out, language=None)
+
     st.download_button(
-        label="Ladda ner TSV",
+        "Ladda ner central.tsv",
         data=tsv_out.encode("utf-8"),
         file_name="central.tsv",
         mime="text/tab-separated-values",
         use_container_width=True,
     )
 
-with right:
-    st.subheader("2) Redigera tabellen")
-    st.caption("Du kan ändra celler direkt. Lägg till rader via + längst ner i tabellen.")
+# --- Avancerat: data_editor vid behov (men inte default på mobil)
+with tab_adv:
+    st.write("Använd bara om du verkligen vill redigera i tabell-form. (Mobil kan vara seg.)")
     edited = st.data_editor(
         df,
         num_rows="dynamic",
         use_container_width=True,
         hide_index=True,
         column_config={
-            "ID": st.column_config.TextColumn("ID", help="Fri text: 15.3, 6-9, Kabel 12, Spis..."),
-            "Benämning": st.column_config.TextColumn("Benämning", help="Fri beskrivning"),
-            "Meta": st.column_config.TextColumn("Meta", help="Valfritt: 10A, 1.5mm², JFB1, fas, kabelnr..."),
+            "ID": st.column_config.TextColumn("ID"),
+            "Benämning": st.column_config.TextColumn("Benämning"),
+            "Meta": st.column_config.TextColumn("Meta"),
         },
         key="editor",
     )
-
-    # Sync tillbaka till export
-    df = edited.fillna("").astype(str)
-    st.caption("Tips: håll 'Meta' som kommatecken-separerad fri text i v1 (t.ex. `10A, 1.5mm², JFB1`).")
+    edited = edited.fillna("").astype(str)
+    st.divider()
+    st.write("Uppdatera TSV i IN-fliken med detta om du vill:")
+    st.code(df_to_tsv(edited, include_header=True), language=None)

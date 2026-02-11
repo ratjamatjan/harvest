@@ -1,6 +1,7 @@
 import io
 import re
 import unicodedata
+import html
 from datetime import datetime
 
 import pandas as pd
@@ -98,6 +99,97 @@ def build_filename(project: str, panel: str) -> str:
     return f"{p}__{date_stamp}__{time_stamp}.tsv"
 
 
+def build_report_html(df: pd.DataFrame, title: str) -> str:
+    # Rapport tar bara 2 kolumner: ID och Benämning
+    rows = df[["ID", "Benämning"]].fillna("").astype(str).values.tolist()
+
+    def esc(x: str) -> str:
+        return html.escape(x or "")
+
+    return f"""<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>{esc(title)}</title>
+<style>
+  @page {{ size: A4; margin: 0; }}
+  body {{ margin:0; background:#fff; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; color:#000; }}
+  .page {{ width: 210mm; min-height: 297mm; padding: 12mm; box-sizing: border-box; }}
+  .head {{ display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 6mm; }}
+  h1 {{ margin:0; font-size:16px; font-weight:700; }}
+  .meta {{ font-size:12px; color:#444; text-align:right; line-height:1.5; white-space:nowrap; }}
+  .meta b {{ color:#000; font-weight:600; }}
+
+  table {{ width:100%; border-collapse:collapse; table-layout:fixed; border:2px solid #000; font-size:12px; }}
+  thead th {{
+    border-right:1px solid #000;
+    border-bottom:2px solid #000;
+    padding:6px 8px;
+    background:#f2f2f2;
+    font-weight:700;
+  }}
+  thead th:last-child {{ border-right:0; }}
+  tbody td {{
+    border-right:1px solid #000;
+    border-bottom:1px solid #000;
+    padding:6px 8px;
+    vertical-align:top;
+    word-wrap:break-word;
+  }}
+  tbody tr:last-child td {{ border-bottom:0; }}
+  tbody td:last-child {{ border-right:0; }}
+
+  .col-group {{ width:18mm; text-align:center; }}
+  .col-desc {{ width:auto; }}
+
+  .printbar {{
+    position: fixed; right: 12mm; bottom: 12mm;
+    font-size: 12px; color:#444;
+  }}
+  .btn {{
+    border:1px solid #ddd; padding:8px 10px; border-radius:10px;
+    background:#fff; cursor:pointer;
+  }}
+
+  @media print {{
+    .printbar {{ display:none; }}
+  }}
+</style>
+</head>
+<body>
+  <div class="page">
+    <div class="head">
+      <div>
+        <h1>{esc(title)}</h1>
+        <div style="margin-top:2mm;font-size:12px;color:#444">Automatiskt genererad från TSV</div>
+      </div>
+      <div class="meta">
+        <div>Datum: <b>{datetime.now().strftime("%Y-%m-%d")}</b></div>
+        <div>Rader: <b>{len(rows)}</b></div>
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th class="col-group">Grupp nr</th>
+          <th class="col-desc">Gruppens omfattning</th>
+        </tr>
+      </thead>
+      <tbody>
+        {''.join(f"<tr><td class='col-group'>{esc(r[0])}</td><td class='col-desc'>{esc(r[1])}</td></tr>" for r in rows)}
+      </tbody>
+    </table>
+
+    <div class="printbar">
+      <button class="btn" onclick="window.print()">Skriv ut / Spara som PDF</button>
+    </div>
+  </div>
+</body>
+</html>"""
+
+
 # --------------------------------------------------
 # UI
 # --------------------------------------------------
@@ -107,15 +199,9 @@ st.caption(CONTRACT)
 with st.expander("Projektinfo (för filnamn)", expanded=True):
     col1, col2 = st.columns(2)
     with col1:
-        project_name = st.text_input(
-            "Projektnamn",
-            value=st.session_state.get("project_name", ""),
-        )
+        project_name = st.text_input("Projektnamn", value=st.session_state.get("project_name", ""))
     with col2:
-        panel_name = st.text_input(
-            "Central / blad (valfritt)",
-            value=st.session_state.get("panel_name", ""),
-        )
+        panel_name = st.text_input("Central / blad (valfritt)", value=st.session_state.get("panel_name", ""))
 
     st.session_state["project_name"] = project_name
     st.session_state["panel_name"] = panel_name
@@ -129,6 +215,7 @@ if "raw_tsv" not in st.session_state:
 
 
 tab_in, tab_out, tab_adv = st.tabs(["IN (tolkning + TSV)", "UT (preview/export)", "Avancerat"])
+
 
 # --------------------------------------------------
 # IN
@@ -159,6 +246,7 @@ with tab_in:
 # --------------------------------------------------
 df = parse_tsv(st.session_state.raw_tsv)
 
+
 # --------------------------------------------------
 # UT
 # --------------------------------------------------
@@ -187,6 +275,31 @@ with tab_out:
         mime="text/tab-separated-values",
         use_container_width=True,
     )
+
+    st.divider()
+    st.subheader("Rapport (PDF via utskrift)")
+
+    if st.button("Generera rapport", use_container_width=True):
+        title = (st.session_state.get("project_name", "").strip() or "Gruppförteckning")
+        st.session_state["report_html"] = build_report_html(df=df, title=title)
+
+    if "report_html" in st.session_state:
+        report_html = st.session_state["report_html"]
+
+        st.components.v1.html(report_html, height=900, scrolling=True)
+
+        report_name = build_filename(
+            project=st.session_state.get("project_name", "") or "rapport",
+            panel=(st.session_state.get("panel_name", "") or "") + "__rapport",
+        ).replace(".tsv", ".html")
+
+        st.download_button(
+            "Ladda ner rapport (HTML)",
+            data=report_html.encode("utf-8"),
+            file_name=report_name,
+            mime="text/html",
+            use_container_width=True,
+        )
 
 
 # --------------------------------------------------
